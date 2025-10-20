@@ -57,8 +57,14 @@ Released under the MIT license
     </ul>
     <h2>Water Level</h2>
     <div>
-      <input id="waterLevelSlider" type="range" min="-1" max="0.16" step="0.01" value="0">
+      <input id="waterLevelSlider" type="range" min="-1" max="0.16" step="0.01" value="-1">
       <div>Level: <span id="waterLevelValue">0.00</span></div>
+      <div style="margin-top:8px;">
+        <label for="riseRate">Rise rate (units/sec): </label>
+        <input id="riseRate" type="number" step="0.01" value="0.05" style="width:80px;">
+        <button id="riseToggle">Start Rising</button>
+        <button id="resetToSlider">Reset to Slider</button>
+      </div>
     </div>
     <p><small>* requires the OES_texture_float extension<br>** requires the OES_standard_derivatives extension</small></p>
     <p><small>Tile texture from <a href="http://www.flickr.com/photos/zooboing/3682834083/">zooboing</a> on Flickr</small></p>

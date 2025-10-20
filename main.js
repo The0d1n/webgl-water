@@ -94,6 +94,10 @@ window.onload = function() {
   // wire water level slider
   var slider = document.getElementById('waterLevelSlider');
   var sliderValue = document.getElementById('waterLevelValue');
+  var riseRateInput = document.getElementById('riseRate');
+  var riseToggleBtn = document.getElementById('riseToggle');
+  var resetToSliderBtn = document.getElementById('resetToSlider');
+  var isRising = false;
   function applyWaterLevel(v) {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
@@ -109,6 +113,26 @@ window.onload = function() {
   slider.addEventListener('input', function(e) { applyWaterLevel(e.target.value); });
   slider.addEventListener('change', function(e) { applyWaterLevel(e.target.value); });
 
+  // Toggle rising behavior
+  riseToggleBtn.addEventListener('click', function() {
+    isRising = !isRising;
+    riseToggleBtn.textContent = isRising ? 'Stop Rising' : 'Start Rising';
+    // if starting, ensure renderer/water initialized
+    if (isRising && renderer && typeof renderer.waterLevel !== 'undefined') {
+      // ensure current slider shows the current water level
+      slider.value = renderer.waterLevel;
+      sliderValue.textContent = parseFloat(renderer.waterLevel).toFixed(2);
+    }
+  });
+
+  // Reset water to slider's current value (force update)
+  resetToSliderBtn.addEventListener('click', function() {
+    applyWaterLevel(slider.value);
+    // stop rising when resetting
+    isRising = false;
+    riseToggleBtn.textContent = 'Start Rising';
+  });
+
   var requestAnimationFrame =
     window.requestAnimationFrame ||
     window.webkitRequestAnimationFrame ||
@@ -117,9 +141,37 @@ window.onload = function() {
   var prevTime = new Date().getTime();
   function animate() {
     var nextTime = new Date().getTime();
+    var delta = (nextTime - prevTime) / 1000;
     if (!paused) {
-      update((nextTime - prevTime) / 1000);
+      update(delta);
       draw();
+    }
+
+    // Handle rising water when enabled (runs even if paused is false above). We update renderer and slider.
+    if (isRising && renderer) {
+      // parse rise rate from input; if invalid use 0
+      var rate = parseFloat(riseRateInput.value) || 0;
+      // increment water level based on delta time
+      var newLevel = renderer.waterLevel + rate * delta;
+      // clamp to slider bounds
+      var min = parseFloat(slider.getAttribute('min'));
+      var max = parseFloat(slider.getAttribute('max'));
+      if (newLevel >= max) {
+        newLevel = max;
+        isRising = false;
+        riseToggleBtn.textContent = 'Start Rising';
+      }
+      // apply and sync slider and visuals
+      renderer.waterLevel = newLevel;
+      if (water) water.waterLevel = renderer.waterLevel;
+      slider.value = renderer.waterLevel;
+      sliderValue.textContent = parseFloat(renderer.waterLevel).toFixed(2);
+      // if paused, force update visuals immediately
+      if (paused) {
+        water.updateNormals();
+        renderer.updateCaustics(water);
+        draw();
+      }
     }
     prevTime = nextTime;
     requestAnimationFrame(animate);
