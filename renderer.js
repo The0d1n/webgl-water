@@ -11,7 +11,8 @@ var helperFunctions = '\
   const float IOR_WATER = 1.333;\
   const vec3 abovewaterColor = vec3(0.25, 1.0, 1.25);\
   const vec3 underwaterColor = vec3(0.4, 0.9, 1.0);\
-  const float poolHeight = 1.0;\
+  uniform float poolHeight;\
+  uniform float waterLevel;\
   uniform vec3 light;\
   uniform vec3 sphereCenter;\
   uniform float sphereRadius;\
@@ -55,7 +56,8 @@ var helperFunctions = '\
     vec3 refractedLight = refract(-light, vec3(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);\
     float diffuse = max(0.0, dot(-refractedLight, sphereNormal)) * 0.5;\
     vec4 info = texture2D(water, point.xz * 0.5 + 0.5);\
-    if (point.y < info.r) {\
+    float surfaceY = info.r + waterLevel;\
+    if (point.y < surfaceY) {\
       vec4 caustic = texture2D(causticTex, 0.75 * (point.xz - point.y * refractedLight.xz / refractedLight.y) * 0.5 + 0.5);\
       diffuse *= caustic.r * 4.0;\
     }\
@@ -87,9 +89,12 @@ var helperFunctions = '\
     vec3 refractedLight = -refract(-light, vec3(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);\
     float diffuse = max(0.0, dot(refractedLight, normal));\
     vec4 info = texture2D(water, point.xz * 0.5 + 0.5);\
-    if (point.y < info.r) {\
+    float surfaceY2 = info.r + waterLevel;\
+    if (point.y < surfaceY2) {\
       vec4 caustic = texture2D(causticTex, 0.75 * (point.xz - point.y * refractedLight.xz / refractedLight.y) * 0.5 + 0.5);\
       scale += diffuse * caustic.r * 2.0 * caustic.g;\
+      /* tint tiles underwater */\
+      wallColor = mix(wallColor, underwaterColor, 0.35);\
     } else {\
       /* shadow for the rim of the pool */\
       vec2 t = intersectCube(point, refractedLight, vec3(-1.0, -poolHeight, -1.0), vec3(1.0, 2.0, 1.0));\
@@ -115,11 +120,12 @@ function Renderer() {
   for (var i = 0; i < 2; i++) {
     this.waterShaders[i] = new GL.Shader('\
       uniform sampler2D water;\
+      uniform float waterLevel;\
       varying vec3 position;\
       void main() {\
         vec4 info = texture2D(water, gl_Vertex.xy * 0.5 + 0.5);\
         position = gl_Vertex.xzy;\
-        position.y += info.r;\
+        position.y += info.r + waterLevel;\
         gl_Position = gl_ModelViewProjectionMatrix * vec4(position, 1.0);\
       }\
     ', helperFunctions + '\
@@ -197,7 +203,7 @@ function Renderer() {
     void main() {\
       gl_FragColor = vec4(getSphereColor(position), 1.0);\
       vec4 info = texture2D(water, position.xz * 0.5 + 0.5);\
-      if (position.y < info.r) {\
+      if (position.y < info.r + waterLevel) {\
         gl_FragColor.rgb *= underwaterColor * 1.2;\
       }\
     }\
@@ -217,13 +223,16 @@ function Renderer() {
     void main() {\
       gl_FragColor = vec4(getWallColor(position), 1.0);\
       vec4 info = texture2D(water, position.xz * 0.5 + 0.5);\
-      if (position.y < info.r) {\
+      if (position.y < info.r + waterLevel) {\
         gl_FragColor.rgb *= underwaterColor * 1.2;\
       }\
     }\
   ');
   this.sphereCenter = new GL.Vector();
   this.sphereRadius = 0;
+  // expose levels controllable from JS
+  this.poolHeight = 1.0;
+  this.waterLevel = 0.0;
   var hasDerivatives = !!gl.getExtension('OES_standard_derivatives');
   this.causticsShader = new GL.Shader(helperFunctions + '\
     varying vec3 oldPos;\
@@ -296,7 +305,9 @@ Renderer.prototype.updateCaustics = function(water) {
       light: this_.lightDir,
       water: 0,
       sphereCenter: this_.sphereCenter,
-      sphereRadius: this_.sphereRadius
+      sphereRadius: this_.sphereRadius,
+      poolHeight: this_.poolHeight,
+      waterLevel: this_.waterLevel
     }).draw(this_.waterMesh);
   });
 };
@@ -319,6 +330,9 @@ Renderer.prototype.renderWater = function(water, sky) {
       eye: tracer.eye,
       sphereCenter: this.sphereCenter,
       sphereRadius: this.sphereRadius
+    }).uniforms({
+      poolHeight: this.poolHeight,
+      waterLevel: this.waterLevel
     }).draw(this.waterMesh);
   }
   gl.disable(gl.CULL_FACE);
@@ -333,6 +347,9 @@ Renderer.prototype.renderSphere = function() {
     causticTex: 1,
     sphereCenter: this.sphereCenter,
     sphereRadius: this.sphereRadius
+  }).uniforms({
+    poolHeight: this.poolHeight,
+    waterLevel: this.waterLevel
   }).draw(this.sphereMesh);
 };
 
@@ -348,6 +365,9 @@ Renderer.prototype.renderCube = function() {
     causticTex: 2,
     sphereCenter: this.sphereCenter,
     sphereRadius: this.sphereRadius
+  }).uniforms({
+    poolHeight: this.poolHeight,
+    waterLevel: this.waterLevel
   }).draw(this.cubeMesh);
   gl.disable(gl.CULL_FACE);
 };

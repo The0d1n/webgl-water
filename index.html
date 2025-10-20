@@ -35,7 +35,7 @@ Released under the MIT license
 </head><body>
   <div id="loading">Loading...</div>
   <div id="help">
-    <h1>WebGL Water</h1>
+    <h1>ChanGL Water</h1>
     <p>Made by <a href="http://madebyevan.com/">Evan Wallace</a></p>
     <p>This demo requires a decent graphics card and up-to-date drivers. If you can't run the demo, you can still <a href="http://youtube.com/watch?v=R0O_9bp3EKQ">see it on YouTube</a>.</p>
     <h2>Interactions:</h2>
@@ -55,6 +55,11 @@ Released under the MIT license
       <li>Soft shadows</li>
       <li>Caustics (see <a href="https://medium.com/@evanwallace/rendering-realtime-caustics-in-webgl-2a99a29a0b2c">this</a> for details) **</li>
     </ul>
+    <h2>Water Level</h2>
+    <div>
+      <input id="waterLevelSlider" type="range" min="-0.5" max="0.9" step="0.01" value="0">
+      <div>Level: <span id="waterLevelValue">0.00</span></div>
+    </div>
     <p><small>* requires the OES_texture_float extension<br>** requires the OES_standard_derivatives extension</small></p>
     <p><small>Tile texture from <a href="http://www.flickr.com/photos/zooboing/3682834083/">zooboing</a> on Flickr</small></p>
   </div>

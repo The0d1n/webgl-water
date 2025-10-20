@@ -89,6 +89,23 @@ window.onload = function() {
   document.getElementById('loading').innerHTML = '';
   onresize();
 
+  // wire water level slider
+  var slider = document.getElementById('waterLevelSlider');
+  var sliderValue = document.getElementById('waterLevelValue');
+  function applyWaterLevel(v) {
+    if (!renderer) return;
+    renderer.waterLevel = parseFloat(v);
+    renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
+    sliderValue.textContent = parseFloat(v).toFixed(2);
+    if (paused) {
+      water.updateNormals();
+      renderer.updateCaustics(water);
+      draw();
+    }
+  }
+  slider.addEventListener('input', function(e) { applyWaterLevel(e.target.value); });
+  slider.addEventListener('change', function(e) { applyWaterLevel(e.target.value); });
+
   var requestAnimationFrame =
     window.requestAnimationFrame ||
     window.webkitRequestAnimationFrame ||
