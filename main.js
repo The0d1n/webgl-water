@@ -64,6 +64,8 @@ window.onload = function() {
 
   water = new Water();
   renderer = new Renderer();
+  // keep water simulation aware of the global water level
+  water.waterLevel = renderer.waterLevel;
   cubemap = new Cubemap({
     xneg: document.getElementById('xneg'),
     xpos: document.getElementById('xpos'),
@@ -96,6 +98,7 @@ window.onload = function() {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
     renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
+    if (water) water.waterLevel = renderer.waterLevel;
     sliderValue.textContent = parseFloat(v).toFixed(2);
     if (paused) {
       water.updateNormals();
@@ -250,7 +253,8 @@ window.onload = function() {
       velocity = new GL.Vector();
     } else if (useSpherePhysics) {
       // Fall down with viscosity under water
-      var percentUnderWater = Math.max(0, Math.min(1, (radius - center.y) / (2 * radius)));
+      var surfaceY = (renderer && typeof renderer.waterLevel !== 'undefined') ? renderer.waterLevel : 0.0;
+      var percentUnderWater = Math.max(0, Math.min(1, (radius - (center.y - surfaceY)) / (2 * radius)));
       velocity = velocity.add(gravity.multiply(seconds - 1.1 * seconds * percentUnderWater));
       velocity = velocity.subtract(velocity.unit().multiply(percentUnderWater * seconds * velocity.dot(velocity)));
       center = center.add(velocity.multiply(seconds));
