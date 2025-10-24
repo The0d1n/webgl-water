@@ -98,6 +98,18 @@ window.onload = function() {
   var riseToggleBtn = document.getElementById('riseToggle');
   var resetToSliderBtn = document.getElementById('resetToSlider');
   var isRising = false;
+  // Ripple generation while rising
+  var rippleConfig = {
+    // average seconds between ripples
+    frequency: 0.25,
+    // ripple radius
+    radius: 0.12,
+    // ripple strength (positive for up, negative for down)
+    strength: 0.09,
+    // max spread across plane (-1..1 for x and z)
+    spread: 0.9
+  };
+  var rippleAcc = 0;
   function applyWaterLevel(v) {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
@@ -171,6 +183,28 @@ window.onload = function() {
         water.updateNormals();
         renderer.updateCaustics(water);
         draw();
+      }
+      // Generate ripples while rising. Use a poisson-ish process based on frequency.
+      // We accumulate time and generate one or more ripples depending on elapsed time.
+      if (water && rippleConfig.frequency > 0) {
+        rippleAcc += delta;
+        var interval = rippleConfig.frequency;
+        while (rippleAcc >= interval) {
+          rippleAcc -= interval;
+          // choose a random position within spread bounds but biased toward center
+          var x = (Math.random() * 2 - 1) * rippleConfig.spread;
+          var z = (Math.random() * 2 - 1) * rippleConfig.spread;
+          // small variation in radius/strength so ripples look natural
+          var r = rippleConfig.radius * (0.7 + Math.random() * 0.6);
+          var s = rippleConfig.strength * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? 1 : -1);
+          water.addDrop(x, z, r, s);
+        }
+        // If paused, make sure visuals reflect the added ripples
+        if (paused) {
+          water.updateNormals();
+          renderer.updateCaustics(water);
+          draw();
+        }
       }
     }
     prevTime = nextTime;
