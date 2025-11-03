@@ -64,6 +64,8 @@ window.onload = function() {
 
   water = new Water();
   renderer = new Renderer();
+  // keep water simulation aware of the global water level
+  water.waterLevel = renderer.waterLevel;
   cubemap = new Cubemap({
     xneg: document.getElementById('xneg'),
     xpos: document.getElementById('xpos'),
@@ -89,6 +91,60 @@ window.onload = function() {
   document.getElementById('loading').innerHTML = '';
   onresize();
 
+  // wire water level slider
+  var slider = document.getElementById('waterLevelSlider');
+  var sliderValue = document.getElementById('waterLevelValue');
+  var riseRateInput = document.getElementById('riseRate');
+  var riseToggleBtn = document.getElementById('riseToggle');
+  var resetToSliderBtn = document.getElementById('resetToSlider');
+  var isRising = false;
+  // Ripple generation while rising
+  var rippleConfig = {
+    // average seconds between ripples
+    frequency: 0.25,
+    // ripple radius
+    radius: 0.12,
+    // ripple strength (positive for up, negative for down)
+    strength: 0.09,
+    // max spread across plane (-1..1 for x and z)
+    spread: 0.9
+  };
+  var rippleAcc = 0;
+  function applyWaterLevel(v) {
+    if (!renderer) return;
+    renderer.waterLevel = parseFloat(v);
+    renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
+    if (water) water.waterLevel = renderer.waterLevel;
+    sliderValue.textContent = parseFloat(v).toFixed(2);
+    if (paused) {
+      water.updateNormals();
+      renderer.updateCaustics(water);
+      draw();
+    }
+  }
+  slider.addEventListener('input', function(e) { applyWaterLevel(e.target.value); });
+  slider.addEventListener('change', function(e) { applyWaterLevel(e.target.value); });
+
+  // Toggle rising behavior
+  riseToggleBtn.addEventListener('click', function() {
+    isRising = !isRising;
+    riseToggleBtn.textContent = isRising ? 'Stop Rising' : 'Start Rising';
+    // if starting, ensure renderer/water initialized
+    if (isRising && renderer && typeof renderer.waterLevel !== 'undefined') {
+      // ensure current slider shows the current water level
+      slider.value = renderer.waterLevel;
+      sliderValue.textContent = parseFloat(renderer.waterLevel).toFixed(2);
+    }
+  });
+
+  // Reset water to slider's current value (force update)
+  resetToSliderBtn.addEventListener('click', function() {
+    applyWaterLevel(slider.value);
+    // stop rising when resetting
+    isRising = false;
+    riseToggleBtn.textContent = 'Start Rising';
+  });
+
   var requestAnimationFrame =
     window.requestAnimationFrame ||
     window.webkitRequestAnimationFrame ||
@@ -97,9 +153,59 @@ window.onload = function() {
   var prevTime = new Date().getTime();
   function animate() {
     var nextTime = new Date().getTime();
+    var delta = (nextTime - prevTime) / 1000;
     if (!paused) {
-      update((nextTime - prevTime) / 1000);
+      update(delta);
       draw();
+    }
+
+    // Handle rising water when enabled (runs even if paused is false above). We update renderer and slider.
+    if (isRising && renderer) {
+      // parse rise rate from input; if invalid use 0
+      var rate = parseFloat(riseRateInput.value) || 0;
+      // increment water level based on delta time
+      var newLevel = renderer.waterLevel + rate * delta;
+      // clamp to slider bounds
+      var min = parseFloat(slider.getAttribute('min'));
+      var max = parseFloat(slider.getAttribute('max'));
+      if (newLevel >= max) {
+        newLevel = max;
+        isRising = false;
+        riseToggleBtn.textContent = 'Start Rising';
+      }
+      // apply and sync slider and visuals
+      renderer.waterLevel = newLevel;
+      if (water) water.waterLevel = renderer.waterLevel;
+      slider.value = renderer.waterLevel;
+      sliderValue.textContent = parseFloat(renderer.waterLevel).toFixed(2);
+      // if paused, force update visuals immediately
+      if (paused) {
+        water.updateNormals();
+        renderer.updateCaustics(water);
+        draw();
+      }
+      // Generate ripples while rising. Use a poisson-ish process based on frequency.
+      // We accumulate time and generate one or more ripples depending on elapsed time.
+      if (water && rippleConfig.frequency > 0) {
+        rippleAcc += delta;
+        var interval = rippleConfig.frequency;
+        while (rippleAcc >= interval) {
+          rippleAcc -= interval;
+          // choose a random position within spread bounds but biased toward center
+          var x = (Math.random() * 2 - 1) * rippleConfig.spread;
+          var z = (Math.random() * 2 - 1) * rippleConfig.spread;
+          // small variation in radius/strength so ripples look natural
+          var r = rippleConfig.radius * (0.7 + Math.random() * 0.6);
+          var s = rippleConfig.strength * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? 1 : -1);
+          water.addDrop(x, z, r, s);
+        }
+        // If paused, make sure visuals reflect the added ripples
+        if (paused) {
+          water.updateNormals();
+          renderer.updateCaustics(water);
+          draw();
+        }
+      }
     }
     prevTime = nextTime;
     requestAnimationFrame(animate);
@@ -233,7 +339,8 @@ window.onload = function() {
       velocity = new GL.Vector();
     } else if (useSpherePhysics) {
       // Fall down with viscosity under water
-      var percentUnderWater = Math.max(0, Math.min(1, (radius - center.y) / (2 * radius)));
+      var surfaceY = (renderer && typeof renderer.waterLevel !== 'undefined') ? renderer.waterLevel : 0.0;
+      var percentUnderWater = Math.max(0, Math.min(1, (radius - (center.y - surfaceY)) / (2 * radius)));
       velocity = velocity.add(gravity.multiply(seconds - 1.1 * seconds * percentUnderWater));
       velocity = velocity.subtract(velocity.unit().multiply(percentUnderWater * seconds * velocity.dot(velocity)));
       center = center.add(velocity.multiply(seconds));
