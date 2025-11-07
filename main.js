@@ -39,6 +39,10 @@ var stackVertical = true;
 var cameraX = 0.0; // horizontal camera offset to center on active container
 var cameraY = 0.0; // vertical camera offset when stacking vertically
 var verticalSpacing = 3.0; // world units between stacked containers
+// physical pool dimensions (meters). For a 10x10x10 m cube set these to 10.
+var poolWidth = 10.0;
+var poolDepth = 10.0;
+var poolHeightMeters = 10.0;
 
 // Sphere physics info
 var useSpherePhysics = false;
@@ -197,12 +201,11 @@ window.onload = function() {
 
     // Handle rising water when enabled (runs even if paused is false above). We update renderer and slider.
     if (isRising && renderer) {
-      // parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
-      // Assume 1 world unit = 1 meter and a 10m x 10m container (area = 100 m^2).
-      // 1 liter = 0.001 m^3, so height change (m) = liters * 0.001 / area.
-      var rateLiters = parseFloat(riseRateInput.value) || 0;
-      var area = 10.0 * 10.0; // 10m x 10m
-      var rate = rateLiters * 0.001 / area; // meters (world units) per second
+  // parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
+  // 1 liter = 0.001 m^3. Height change (m) = liters * 0.001 / area.
+  var rateLiters = parseFloat(riseRateInput.value) || 0;
+  var area = poolWidth * poolDepth; // m^2
+  var rate = rateLiters * 0.001 / area; // meters (world units) per second
       // increment water level based on delta time
       var newLevel = renderer.waterLevel + rate * delta;
       // clamp to slider bounds
@@ -212,8 +215,9 @@ window.onload = function() {
         newLevel = max;
         // When container reaches max, spawn a single new empty container and transition the camera to it.
         var lastOffset = stackVertical ? containers[containers.length - 1].water.poolOffsetY : containers[containers.length - 1].water.poolOffsetX;
-        var newOffset = lastOffset + (stackVertical ? verticalSpacing : 3.0);
-  var newContainer = spawnContainer(newOffset);
+        // spawn under the previous container when stacking vertically
+        var newOffset = lastOffset + (stackVertical ? -verticalSpacing : 3.0);
+        var newContainer = spawnContainer(newOffset);
   // initialize new container empty (use slider min)
   var minAttr = parseFloat(slider.getAttribute('min')) || 0.0;
   newContainer.water.waterLevel = minAttr;
@@ -284,12 +288,18 @@ window.onload = function() {
   window.addEventListener('scroll', function() {
     if (cameraTransition.active) return; // don't override during transition
     if (!stackVertical) return;
-    var maxScroll = Math.max(1, (containers.length - 1) * window.innerHeight);
     var scrollY = window.scrollY || window.pageYOffset || 0;
+    var maxScroll = Math.max(1, (containers.length - 1) * window.innerHeight);
     var scrollFraction = scrollY / maxScroll;
-    // map scroll fraction to total vertical offset range
-    var totalOffset = (containers.length - 1) * verticalSpacing;
-    cameraY = scrollFraction * totalOffset;
+    // compute min and max pool offsets (top and bottom positions)
+    var minOffset = 0, maxOffset = 0;
+    for (var i = 0; i < containers.length; i++) {
+      var off = containers[i].water.poolOffsetY || 0;
+      if (i === 0 || off < minOffset) minOffset = off;
+      if (i === 0 || off > maxOffset) maxOffset = off;
+    }
+    // map scroll fraction (0..1) to cameraY between maxOffset (top) and minOffset (bottom)
+    cameraY = maxOffset + (minOffset - maxOffset) * scrollFraction;
   });
 
   var prevHit;
@@ -520,6 +530,16 @@ function updateCameraTransition(delta) {
     activeContainerIndex = cameraTransition.endIndex;
     // ensure renderer waterLevel points to the new container
     renderer.waterLevel = containers[activeContainerIndex].water.waterLevel;
+    // snap camera to exact end offset and align scroll position
+    if (stackVertical) {
+      var endY = containers[cameraTransition.endIndex].water.poolOffsetY || 0;
+      cameraY = endY;
+      // align page scroll so the viewport corresponds to the endY position
+      try { window.scrollTo({ left: 0, top: (cameraTransition.endIndex) * window.innerHeight, behavior: 'auto' }); } catch (e) { window.scrollTo(0, (cameraTransition.endIndex) * window.innerHeight); }
+    } else {
+      var endX = containers[cameraTransition.endIndex].water.poolOffsetX || 0;
+      cameraX = endX;
+    }
   }
   // simple ease in-out
   var ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
