@@ -378,6 +378,3 @@ Renderer.prototype.renderCube = function(water, causticTex) {
   }).draw(this.cubeMesh);
   gl.disable(gl.CULL_FACE);
 };
-
-
-// End of File
