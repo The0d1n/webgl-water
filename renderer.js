@@ -295,10 +295,13 @@ function Renderer() {
   ');
 }
 
-Renderer.prototype.updateCaustics = function(water) {
+// Update caustics for a given water instance and optionally output to a provided texture.
+// If no destCausticTex is provided, fall back to the renderer's default caustic texture.
+Renderer.prototype.updateCaustics = function(water, destCausticTex) {
   if (!this.causticsShader) return;
   var this_ = this;
-  this.causticTex.drawTo(function() {
+  var target = destCausticTex || this.causticTex;
+  target.drawTo(function() {
     gl.clear(gl.COLOR_BUFFER_BIT);
     water.textureA.bind(0);
     this_.causticsShader.uniforms({
@@ -312,12 +315,14 @@ Renderer.prototype.updateCaustics = function(water) {
   });
 };
 
-Renderer.prototype.renderWater = function(water, sky) {
+// Render water for a given water instance. Optionally provide a caustic texture to use
+// (so multiple pools can have their own caustics).
+Renderer.prototype.renderWater = function(water, sky, causticTex) {
   var tracer = new GL.Raytracer();
   water.textureA.bind(0);
   this.tileTexture.bind(1);
   sky.bind(2);
-  this.causticTex.bind(3);
+  (causticTex || this.causticTex).bind(3);
   gl.enable(gl.CULL_FACE);
   for (var i = 0; i < 2; i++) {
     gl.cullFace(i ? gl.BACK : gl.FRONT);
@@ -338,9 +343,10 @@ Renderer.prototype.renderWater = function(water, sky) {
   gl.disable(gl.CULL_FACE);
 };
 
-Renderer.prototype.renderSphere = function() {
+// Render sphere for a given water instance. Optionally supply a caustic texture to use.
+Renderer.prototype.renderSphere = function(water, causticTex) {
   water.textureA.bind(0);
-  this.causticTex.bind(1);
+  (causticTex || this.causticTex).bind(1);
   this.sphereShader.uniforms({
     light: this.lightDir,
     water: 0,
@@ -353,11 +359,12 @@ Renderer.prototype.renderSphere = function() {
   }).draw(this.sphereMesh);
 };
 
-Renderer.prototype.renderCube = function() {
+// Render cube (pool walls) for a given water instance. Optionally supply a caustic texture to use.
+Renderer.prototype.renderCube = function(water, causticTex) {
   gl.enable(gl.CULL_FACE);
   water.textureA.bind(0);
   this.tileTexture.bind(1);
-  this.causticTex.bind(2);
+  (causticTex || this.causticTex).bind(2);
   this.cubeShader.uniforms({
     light: this.lightDir,
     water: 0,

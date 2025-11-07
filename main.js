@@ -25,11 +25,16 @@ function handleError(text) {
 window.onerror = handleError;
 
 var gl = GL.create();
-var water;
+// We now support multiple containers (pools) side-by-side. Each container has its own Water
+// instance and caustic texture. The renderer still handles drawing, but we will manage
+// which container is active and animate the camera between them.
+var containers = []; // array of { water: Water, causticTex: GL.Texture, rendererState... }
+var activeContainerIndex = 0;
 var cubemap;
 var renderer;
 var angleX = -25;
 var angleY = -200.5;
+var cameraX = 0.0; // horizontal camera offset to center on active container
 
 // Sphere physics info
 var useSpherePhysics = false;
@@ -62,10 +67,24 @@ window.onload = function() {
   document.body.appendChild(gl.canvas);
   gl.clearColor(0, 0, 0, 1);
 
-  water = new Water();
   renderer = new Renderer();
-  // keep water simulation aware of the global water level
-  water.waterLevel = renderer.waterLevel;
+  // create a helper to spawn a container at a given x offset
+  function spawnContainer(xOffset) {
+    var w = new Water();
+    // a caustic texture per container
+    var ct = new GL.Texture(1024, 1024);
+    // initialize some defaults
+    w.waterLevel = renderer.waterLevel;
+    w.poolOffsetX = xOffset || 0; // used to place pool in world space
+    return { water: w, causticTex: ct };
+  }
+
+  // start with one container at x=0
+  containers.push(spawnContainer(0));
+  // keep the renderer synchronized with the active container
+  renderer.waterLevel = containers[activeContainerIndex].water.waterLevel || 0.0;
+  // center camera on the initial container
+  cameraX = containers[activeContainerIndex].water.poolOffsetX || 0.0;
   cubemap = new Cubemap({
     xneg: document.getElementById('xneg'),
     xpos: document.getElementById('xpos'),
@@ -75,7 +94,9 @@ window.onload = function() {
     zpos: document.getElementById('zpos')
   });
 
-  if (!water.textureA.canDrawTo() || !water.textureB.canDrawTo()) {
+  // Make sure the first container's water supports rendering to float textures
+  var firstWater = containers[activeContainerIndex].water;
+  if (!firstWater.textureA.canDrawTo() || !firstWater.textureB.canDrawTo()) {
     throw new Error('Rendering to floating-point textures is required but not supported');
   }
 
@@ -85,7 +106,7 @@ window.onload = function() {
   radius = 0.25;
 
   for (var i = 0; i < 20; i++) {
-    water.addDrop(Math.random() * 2 - 1, Math.random() * 2 - 1, 0.03, (i & 1) ? 0.01 : -0.01);
+    containers[activeContainerIndex].water.addDrop(Math.random() * 2 - 1, Math.random() * 2 - 1, 0.03, (i & 1) ? 0.01 : -0.01);
   }
 
   document.getElementById('loading').innerHTML = '';
@@ -114,11 +135,15 @@ window.onload = function() {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
     renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
-    if (water) water.waterLevel = renderer.waterLevel;
+    // apply to active container
+    var container = containers[activeContainerIndex];
+    if (container) {
+      container.water.waterLevel = renderer.waterLevel;
+    }
     sliderValue.textContent = parseFloat(v).toFixed(2);
     if (paused) {
-      water.updateNormals();
-      renderer.updateCaustics(water);
+      containers[activeContainerIndex].water.updateNormals();
+      renderer.updateCaustics(containers[activeContainerIndex].water, containers[activeContainerIndex].causticTex);
       draw();
     }
   }
@@ -168,25 +193,41 @@ window.onload = function() {
       // clamp to slider bounds
       var min = parseFloat(slider.getAttribute('min'));
       var max = parseFloat(slider.getAttribute('max'));
-      if (newLevel >= max) {
+      if (newLevel >= max && !cameraTransition.active) {
         newLevel = max;
-        isRising = false;
-        riseToggleBtn.textContent = 'Start Rising';
+        // When container reaches max, spawn a single new empty container and transition the camera to it.
+        var lastOffset = containers[containers.length - 1].water.poolOffsetX || 0;
+        var newX = lastOffset + 3.0;
+        var newContainer = spawnContainer(newX);
+        // initialize new container empty (use slider min)
+        var minAttr = parseFloat(slider.getAttribute('min')) || 0.0;
+        newContainer.water.waterLevel = minAttr;
+        containers.push(newContainer);
+        // setup camera transition from current to new container
+        cameraTransition.startIndex = activeContainerIndex;
+        cameraTransition.endIndex = containers.length - 1;
+        cameraTransition.progress = 0;
+        cameraTransition.duration = 1.2; // seconds
+        cameraTransition.active = true;
       }
       // apply and sync slider and visuals
       renderer.waterLevel = newLevel;
-      if (water) water.waterLevel = renderer.waterLevel;
+      var activeContainer = containers[activeContainerIndex];
+      if (activeContainer) activeContainer.water.waterLevel = renderer.waterLevel;
       slider.value = renderer.waterLevel;
       sliderValue.textContent = parseFloat(renderer.waterLevel).toFixed(2);
-      // if paused, force update visuals immediately
+      // if paused, force update visuals immediately for the active container
       if (paused) {
-        water.updateNormals();
-        renderer.updateCaustics(water);
+        var pausedActive = containers[activeContainerIndex];
+        if (pausedActive) {
+          pausedActive.water.updateNormals();
+          renderer.updateCaustics(pausedActive.water, pausedActive.causticTex);
+        }
         draw();
       }
       // Generate ripples while rising. Use a poisson-ish process based on frequency.
       // We accumulate time and generate one or more ripples depending on elapsed time.
-      if (water && rippleConfig.frequency > 0) {
+      if (containers[activeContainerIndex] && rippleConfig.frequency > 0) {
         rippleAcc += delta;
         var interval = rippleConfig.frequency;
         while (rippleAcc >= interval) {
@@ -197,12 +238,15 @@ window.onload = function() {
           // small variation in radius/strength so ripples look natural
           var r = rippleConfig.radius * (0.7 + Math.random() * 0.6);
           var s = rippleConfig.strength * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? 1 : -1);
-          water.addDrop(x, z, r, s);
+          containers[activeContainerIndex].water.addDrop(x, z, r, s);
         }
         // If paused, make sure visuals reflect the added ripples
         if (paused) {
-          water.updateNormals();
-          renderer.updateCaustics(water);
+          var pausedActive2 = containers[activeContainerIndex];
+          if (pausedActive2) {
+            pausedActive2.water.updateNormals();
+            renderer.updateCaustics(pausedActive2.water, pausedActive2.causticTex);
+          }
           draw();
         }
       }
@@ -248,10 +292,14 @@ window.onload = function() {
         var tracer = new GL.Raytracer();
         var ray = tracer.getRayForPixel(x * ratio, y * ratio);
         var pointOnPlane = tracer.eye.add(ray.multiply(-tracer.eye.y / ray.y));
-        water.addDrop(pointOnPlane.x, pointOnPlane.z, 0.03, 0.01);
-        if (paused) {
-          water.updateNormals();
-          renderer.updateCaustics(water);
+        // add drop to active container
+        var activeC = containers[activeContainerIndex];
+        if (activeC) {
+          activeC.water.addDrop(pointOnPlane.x, pointOnPlane.z, 0.03, 0.01);
+          if (paused) {
+            activeC.water.updateNormals();
+            renderer.updateCaustics(activeC.water, activeC.causticTex);
+          }
         }
         break;
       }
@@ -265,7 +313,10 @@ window.onload = function() {
         center.y = Math.max(radius - 1, Math.min(10, center.y));
         center.z = Math.max(radius - 1, Math.min(1 - radius, center.z));
         prevHit = nextHit;
-        if (paused) renderer.updateCaustics(water);
+        if (paused) {
+          var ac = containers[activeContainerIndex];
+          if (ac) renderer.updateCaustics(ac.water, ac.causticTex);
+        }
         break;
       }
       case MODE_ORBIT_CAMERA: {
@@ -352,37 +403,86 @@ window.onload = function() {
       }
     }
 
-    // Displace water around the sphere
-    water.moveSphere(oldCenter, center, radius);
+    // Displace water around the sphere using the active container's water
+    var active = containers[activeContainerIndex];
+    active.water.moveSphere(oldCenter, center, radius);
     oldCenter = center;
 
-    // Update the water simulation and graphics
-    water.stepSimulation();
-    water.stepSimulation();
-    water.updateNormals();
-    renderer.updateCaustics(water);
+    // Update the active water simulation and graphics
+    active.water.stepSimulation();
+    active.water.stepSimulation();
+    active.water.updateNormals();
+    renderer.updateCaustics(active.water, active.causticTex);
+
+    // Update camera transition if active
+    updateCameraTransition(seconds);
   }
 
   function draw() {
     // Change the light direction to the camera look vector when the L key is pressed
     if (GL.keys.L) {
       renderer.lightDir = GL.Vector.fromAngles((90 - angleY) * Math.PI / 180, -angleX * Math.PI / 180);
-      if (paused) renderer.updateCaustics(water);
+      if (paused) {
+        var lac = containers[activeContainerIndex];
+        if (lac) renderer.updateCaustics(lac.water, lac.causticTex);
+      }
     }
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.loadIdentity();
-    gl.translate(0, 0, -4);
-    gl.rotate(-angleX, 1, 0, 0);
-    gl.rotate(-angleY, 0, 1, 0);
-    gl.translate(0, 0.5, 0);
+  // apply camera horizontal offset so we center on the active container
+  gl.translate(-cameraX, 0, -4);
+  gl.rotate(-angleX, 1, 0, 0);
+  gl.rotate(-angleY, 0, 1, 0);
+  gl.translate(0, 0.5, 0);
 
     gl.enable(gl.DEPTH_TEST);
     renderer.sphereCenter = center;
     renderer.sphereRadius = radius;
-    renderer.renderCube();
-    renderer.renderWater(water, cubemap);
-    renderer.renderSphere();
+    // Render all containers. We'll translate per container using gl.push/pop via matrix stack.
+    for (var i = 0; i < containers.length; i++) {
+      var c = containers[i];
+      gl.pushMatrix();
+      gl.translate(c.water.poolOffsetX, 0, 0);
+  // synchronize renderer state
+  renderer.waterLevel = c.water.waterLevel;
+  renderer.poolHeight = 1.0;
+  renderer.renderCube(c.water, c.causticTex);
+  renderer.renderWater(c.water, cubemap, c.causticTex);
+  // only draw the sphere in the active container
+  if (i === activeContainerIndex) renderer.renderSphere(c.water, c.causticTex);
+      gl.popMatrix();
+    }
     gl.disable(gl.DEPTH_TEST);
   }
 };
+
+// camera transition state
+var cameraTransition = {
+  active: false,
+  progress: 0,
+  duration: 1.0,
+  startIndex: 0,
+  endIndex: 0
+};
+
+function updateCameraTransition(delta) {
+  if (!cameraTransition.active) return;
+  cameraTransition.progress += delta;
+  var t = cameraTransition.progress / cameraTransition.duration;
+  if (t >= 1) {
+    t = 1;
+    cameraTransition.active = false;
+    // finalize the active container switch
+    activeContainerIndex = cameraTransition.endIndex;
+    // ensure renderer waterLevel points to the new container
+    renderer.waterLevel = containers[activeContainerIndex].water.waterLevel;
+  }
+  // simple ease in-out
+  var ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  // interpolate cameraX so the scene is translated horizontally to center on the target container
+  var startX = containers[cameraTransition.startIndex].water.poolOffsetX;
+  var endX = containers[cameraTransition.endIndex].water.poolOffsetX;
+  cameraX = startX + (endX - startX) * ease;
+  // zoom (translate z) controlled indirectly by modifying a global camera zoom variable if desired
+}
