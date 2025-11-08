@@ -230,6 +230,28 @@ function Renderer() {
   ');
   this.sphereCenter = new GL.Vector();
   this.sphereRadius = 0;
+  // model (OBJ) mesh and matrix
+  this.modelMesh = null;
+  this.modelMatrix = new GL.Matrix();
+  this.modelShader = new GL.Shader(helperFunctions + '\
+    varying vec3 position;\
+    varying vec3 normal;\
+    void main() {\
+      position = gl_Vertex.xyz;\
+      normal = gl_Normal;\
+      gl_Position = gl_ModelViewProjectionMatrix * vec4(position, 1.0);\
+    }\
+  ', helperFunctions + '\
+    varying vec3 position;\
+    varying vec3 normal;\
+    uniform vec3 modelColor;\
+    void main() {\
+      vec3 col = modelColor;\
+      vec3 L = normalize(light);\
+      float d = max(0.0, dot(normal, L));\
+      gl_FragColor = vec4(col * (0.2 + 0.8 * d), 1.0);\
+    }\
+  ');
   // expose levels controllable from JS
   this.poolHeight = 1.0;
   this.waterLevel = 0.0;
@@ -316,6 +338,31 @@ Renderer.prototype.updateCaustics = function(water, destCausticTex) {
       waterLevel: this_.waterLevel
     }).draw(this_.waterMesh);
   });
+};
+
+// Simple model rendering: draws `this.modelMesh` with `this.modelShader` if set.
+Renderer.prototype.renderModel = function() {
+  if (!this.modelMesh) return;
+  // model transform: translate to modelPosition and apply uniform scale
+  var pos = this.modelPosition || new GL.Vector(0, 0, 0);
+  var scale = this.modelScale || 1.0;
+  // if mesh has boundingSphere, transform it by scale and position for caustics approximations
+  if (this.modelMesh.boundingSphere) {
+    var c = this.modelMesh.boundingSphere.center;
+    this.sphereCenter = new GL.Vector(c[0] * scale + pos.x, c[1] * scale + pos.y, c[2] * scale + pos.z);
+    this.sphereRadius = this.modelMesh.boundingSphere.radius * scale;
+  }
+  // set model color default and draw
+  var defaultColor = this.modelColor || [0.6, 0.6, 0.7];
+  try {
+    gl.pushMatrix();
+    gl.translate(pos.x || 0, pos.y || 0, pos.z || 0);
+    gl.scale(scale, scale, scale);
+    this.modelShader.uniforms({ light: this.lightDir, modelColor: defaultColor }).draw(this.modelMesh);
+    gl.popMatrix();
+  } catch (e) {
+    // ignore draw errors (mesh compilation etc.)
+  }
 };
 
 // Render water for a given water instance. Optionally provide a caustic texture to use

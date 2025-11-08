@@ -76,6 +76,49 @@ window.onload = function() {
   gl.clearColor(0, 0, 0, 1);
 
   renderer = new Renderer();
+  // attempt to load a replacement model (OBJ) and assign it to renderer.modelMesh
+  (function loadModel() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'free_low_poly_male_base_mesh.obj', true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200 || xhr.responseText) {
+          try {
+            if (GL.Mesh.fromOBJ) {
+              var mesh = GL.Mesh.fromOBJ(xhr.responseText);
+              if (mesh) {
+                try { mesh.compile(); } catch(e) {}
+                try { mesh.boundingSphere = mesh.getBoundingSphere(); } catch(e) {}
+                renderer.modelMesh = mesh;
+                // set default placement to the previous sphere center/scale
+                renderer.modelPosition = center || new GL.Vector(0, -0.75, 0.2);
+                renderer.modelScale = radius || 0.25;
+                // attempt to load .mtl for color
+                var mtlXHR = new XMLHttpRequest();
+                mtlXHR.open('GET', 'free_low_poly_male_base_mesh.mtl', true);
+                mtlXHR.onreadystatechange = function() {
+                  if (mtlXHR.readyState === 4) {
+                    if (mtlXHR.status === 200 || mtlXHR.responseText) {
+                      var mtl = mtlXHR.responseText;
+                      var kd = mtl.match(/Kd\s+([0-9.\s]+)/);
+                      if (kd && kd[1]) {
+                        var parts = kd[1].trim().split(/\s+/).map(parseFloat);
+                        if (parts.length >= 3) renderer.modelColor = parts;
+                      }
+                    }
+                  }
+                };
+                mtlXHR.send();
+              }
+            }
+          } catch (e) { console.warn('OBJ load failed', e); }
+        } else {
+          console.warn('Could not load OBJ model:', xhr.status);
+        }
+      }
+    };
+    xhr.send();
+  })();
   // create a helper to spawn a container at a given offset (x or y depending on layout)
   function spawnContainer(offset) {
     var w = new Water();
@@ -492,13 +535,9 @@ window.onload = function() {
   gl.translate(0, 0.5, 0);
 
     gl.enable(gl.DEPTH_TEST);
-    // Only expose sphere to the renderer if physics/interaction is enabled.
-    if (useSpherePhysics) {
-      renderer.sphereCenter = center;
-      renderer.sphereRadius = radius;
-    } else {
-      renderer.sphereRadius = 0; // disable sphere in shaders (no reflections/caustics/shadows)
-    }
+    // Keep the sphere disabled in the renderer so it doesn't appear in reflections
+    // or cast shadows. Physics can still update the water simulation via moveSphere.
+    renderer.sphereRadius = 0;
     // Render all containers. We'll translate per container using gl.push/pop via matrix stack.
     for (var i = 0; i < containers.length; i++) {
       var c = containers[i];
@@ -512,6 +551,8 @@ window.onload = function() {
       renderer.poolHeight = 1.0;
       renderer.renderCube(c.water, c.causticTex);
       renderer.renderWater(c.water, cubemap, c.causticTex);
+  // draw the loaded model (visual only)
+  renderer.renderModel();
       // only draw the sphere in the active container
       // if (i === activeContainerIndex) renderer.renderSphere(c.water, c.causticTex);
       // restore renderer.waterLevel
