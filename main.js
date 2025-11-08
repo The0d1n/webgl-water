@@ -350,6 +350,7 @@ window.onload = function() {
   var mode = -1;
   var MODE_ADD_DROPS = 0;
   var MODE_MOVE_SPHERE = 1;
+  var MODE_MOVE_MODEL = 3;
   var MODE_ORBIT_CAMERA = 2;
 
   var oldX, oldY;
@@ -361,9 +362,21 @@ window.onload = function() {
     var ray = tracer.getRayForPixel(x * ratio, y * ratio);
     var pointOnPlane = tracer.eye.add(ray.multiply(-tracer.eye.y / ray.y));
     var sphereHitTest = GL.Raytracer.hitTestSphere(tracer.eye, ray, center, radius);
+    var modelHit = false;
+    if (renderer.modelMesh && renderer.modelMesh.boundingSphere) {
+      var bs = renderer.modelMesh.boundingSphere;
+      var worldCenter = (renderer.modelPosition) ? renderer.modelPosition : new GL.Vector(bs.center[0], bs.center[1], bs.center[2]);
+      var worldRadius = (renderer.modelScale || 1.0) * bs.radius;
+      var mh = GL.Raytracer.hitTestSphere(tracer.eye, ray, worldCenter, worldRadius);
+      if (mh) modelHit = mh;
+    }
     if (sphereHitTest) {
       mode = MODE_MOVE_SPHERE;
       prevHit = sphereHitTest.hit;
+      planeNormal = tracer.getRayForPixel(gl.canvas.width / 2, gl.canvas.height / 2).negative();
+    } else if (modelHit) {
+      mode = MODE_MOVE_MODEL;
+      prevHit = modelHit.hit;
       planeNormal = tracer.getRayForPixel(gl.canvas.width / 2, gl.canvas.height / 2).negative();
     } else if (Math.abs(pointOnPlane.x) < 1 && Math.abs(pointOnPlane.z) < 1) {
       mode = MODE_ADD_DROPS;
@@ -404,6 +417,18 @@ window.onload = function() {
           var ac = containers[activeContainerIndex];
           if (ac) renderer.updateCaustics(ac.water, ac.causticTex);
         }
+        break;
+      }
+      case MODE_MOVE_MODEL: {
+        var tracer = new GL.Raytracer();
+        var ray = tracer.getRayForPixel(x * ratio, y * ratio);
+        var t = -planeNormal.dot(tracer.eye.subtract(prevHit)) / planeNormal.dot(ray);
+        var nextHit = tracer.eye.add(ray.multiply(t));
+        var delta = nextHit.subtract(prevHit);
+        // move modelPosition by delta
+        renderer.modelPosition = renderer.modelPosition || new GL.Vector(0,0,0);
+        renderer.modelPosition = renderer.modelPosition.add(delta);
+        prevHit = nextHit;
         break;
       }
       case MODE_ORBIT_CAMERA: {
@@ -549,10 +574,21 @@ window.onload = function() {
       var prevRendererWater = renderer.waterLevel;
       renderer.waterLevel = c.water.waterLevel;
       renderer.poolHeight = 1.0;
+      // update dynamic cubemap from the model for realistic reflections
+      if (renderer.modelMesh) {
+        try {
+          renderer.updateDynamicCubemap(function() {
+            // draw only the model and cube walls into the cubemap
+            renderer.renderCube(c.water, c.causticTex);
+            renderer.renderModel();
+          });
+        } catch (e) {}
+      }
+      // render scene using the dynamic cubemap when available
       renderer.renderCube(c.water, c.causticTex);
-      renderer.renderWater(c.water, cubemap, c.causticTex);
-  // draw the loaded model (visual only)
-  renderer.renderModel();
+      renderer.renderWater(c.water, renderer.dynamicSky || cubemap, c.causticTex);
+      // draw the loaded model (visual only)
+      renderer.renderModel();
       // only draw the sphere in the active container
       // if (i === activeContainerIndex) renderer.renderSphere(c.water, c.causticTex);
       // restore renderer.waterLevel
@@ -571,6 +607,19 @@ var cameraTransition = {
   startIndex: 0,
   endIndex: 0
 };
+
+  // keyboard handlers for model scale and reset
+  window.addEventListener('keydown', function(e) {
+    if (!renderer) return;
+    if (e.key === '+' || e.key === '=' ) {
+      renderer.modelScale = (renderer.modelScale || 1) * 1.1;
+    } else if (e.key === '-') {
+      renderer.modelScale = (renderer.modelScale || 1) / 1.1;
+    } else if (e.key === 'r' || e.key === 'R') {
+      renderer.modelPosition = new GL.Vector(0, -0.75, 0.2);
+      renderer.modelScale = 0.25;
+    }
+  });
 
 function updateCameraTransition(delta) {
   if (!cameraTransition.active) return;

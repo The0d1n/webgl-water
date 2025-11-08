@@ -255,6 +255,26 @@ function Renderer() {
   // expose levels controllable from JS
   this.poolHeight = 1.0;
   this.waterLevel = 0.0;
+  // dynamic cubemap for reflecting dynamic objects (like the loaded model)
+  this._dynamicCubeSize = 256;
+  this._dynamicCube = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, this._dynamicCube);
+  for (var f = 0; f < 6; f++) {
+    gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, gl.RGBA, this._dynamicCubeSize, this._dynamicCubeSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  }
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+  this._dynamicCubeFBO = gl.createFramebuffer();
+  var self = this;
+  this.dynamicSky = {
+    bind: function(unit) {
+      gl.activeTexture(gl.TEXTURE0 + (unit || 0));
+      gl.bindTexture(gl.TEXTURE_CUBE_MAP, self._dynamicCube);
+    }
+  };
   var hasDerivatives = !!gl.getExtension('OES_standard_derivatives');
   this.causticsShader = new GL.Shader(helperFunctions + '\
     varying vec3 oldPos;\
@@ -338,6 +358,53 @@ Renderer.prototype.updateCaustics = function(water, destCausticTex) {
       waterLevel: this_.waterLevel
     }).draw(this_.waterMesh);
   });
+};
+
+// Render dynamic cubemap by calling a scene draw callback for each face.
+Renderer.prototype.updateDynamicCubemap = function(sceneDrawCallback) {
+  var size = this._dynamicCubeSize;
+  var fbo = this._dynamicCubeFBO;
+  var tex = this._dynamicCube;
+  var oldViewport = [gl.getParameter(gl.VIEWPORT)[0], gl.getParameter(gl.VIEWPORT)[1], gl.getParameter(gl.VIEWPORT)[2], gl.getParameter(gl.VIEWPORT)[3]];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, size, size);
+  var captures = [
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_X, eye: [1,0,0], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_X, eye: [-1,0,0], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Y, eye: [0,1,0], up: [0,0,1], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y, eye: [0,-1,0], up: [0,0,-1], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Z, eye: [0,0,1], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, eye: [0,0,-1], up: [0,-1,0], center: [0,0,0] }
+  ];
+  for (var i = 0; i < captures.length; i++) {
+    var c = captures[i];
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, c.target, tex, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // set up a temporary projection and view for this face
+    gl.matrixMode(gl.PROJECTION);
+    gl.pushMatrix();
+    gl.loadIdentity();
+    gl.perspective(90, 1, 0.01, 100);
+    gl.matrixMode(gl.MODELVIEW);
+    gl.pushMatrix();
+    gl.loadIdentity();
+    // lookAt(eye, center, up)
+    gl.lookAt(c.eye[0], c.eye[1], c.eye[2], c.center[0], c.center[1], c.center[2], c.up[0], c.up[1], c.up[2]);
+    try {
+      sceneDrawCallback();
+    } catch (e) {
+      // ignore
+    }
+    gl.popMatrix();
+    gl.matrixMode(gl.PROJECTION);
+    gl.popMatrix();
+    gl.matrixMode(gl.MODELVIEW);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(oldViewport[0], oldViewport[1], oldViewport[2], oldViewport[3]);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
+  gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
 };
 
 // Simple model rendering: draws `this.modelMesh` with `this.modelShader` if set.
