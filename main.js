@@ -574,19 +574,9 @@ window.onload = function() {
       var prevRendererWater = renderer.waterLevel;
       renderer.waterLevel = c.water.waterLevel;
       renderer.poolHeight = 1.0;
-      // update dynamic cubemap from the model for realistic reflections
-      if (renderer.modelMesh) {
-        try {
-          renderer.updateDynamicCubemap(function() {
-            // draw only the model and cube walls into the cubemap
-            renderer.renderCube(c.water, c.causticTex);
-            renderer.renderModel();
-          });
-        } catch (e) {}
-      }
-      // render scene using the dynamic cubemap when available
+      // render scene using the static cubemap only (disable dynamic reflections)
       renderer.renderCube(c.water, c.causticTex);
-      renderer.renderWater(c.water, renderer.dynamicSky || cubemap, c.causticTex);
+      renderer.renderWater(c.water, cubemap, c.causticTex);
       // draw the loaded model (visual only)
       renderer.renderModel();
       // only draw the sphere in the active container

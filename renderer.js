@@ -414,11 +414,10 @@ Renderer.prototype.renderModel = function() {
   var pos = this.modelPosition || new GL.Vector(0, 0, 0);
   var scale = this.modelScale || 1.0;
   // if mesh has boundingSphere, transform it by scale and position for caustics approximations
-  if (this.modelMesh.boundingSphere) {
-    var c = this.modelMesh.boundingSphere.center;
-    this.sphereCenter = new GL.Vector(c[0] * scale + pos.x, c[1] * scale + pos.y, c[2] * scale + pos.z);
-    this.sphereRadius = this.modelMesh.boundingSphere.radius * scale;
-  }
+  // We intentionally do NOT set sphereCenter/sphereRadius from the model bounding sphere
+  // to avoid approximate blob shadows/caustics caused by the bounding-sphere hack.
+  // Keep sphereRadius == 0 so shader paths that render analytic sphere are disabled.
+  this.sphereRadius = 0;
   // set model color default and draw
   var defaultColor = this.modelColor || [0.6, 0.6, 0.7];
   try {
