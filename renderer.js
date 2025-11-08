@@ -191,7 +191,7 @@ function Renderer() {
       }\
     ');
   }
-  this.sphereMesh = GL.Mesh.sphere({ detail: 10 });
+  this.sphereMesh = GL.Mesh.sphere({ detail: 0 });
   this.sphereShader = new GL.Shader(helperFunctions + '\
     varying vec3 position;\
     void main() {\
@@ -279,13 +279,16 @@ function Renderer() {
       vec3 refractedLight = refract(-light, vec3(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);\
       \
       /* compute a blob shadow and make sure we only draw a shadow if the player is blocking the light */\
-      vec3 dir = (sphereCenter - newPos) / sphereRadius;\
-      vec3 area = cross(dir, refractedLight);\
-      float shadow = dot(area, area);\
-      float dist = dot(dir, -refractedLight);\
-      shadow = 1.0 + (shadow - 1.0) / (0.05 + dist * 0.025);\
-      shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);\
-      shadow = mix(1.0, shadow, clamp(dist * 2.0, 0.0, 1.0));\
+      float shadow = 1.0;\
+      if (sphereRadius > 0.0) {\
+        vec3 dir = (sphereCenter - newPos) / sphereRadius;\
+        vec3 area = cross(dir, refractedLight);\
+        float sa = dot(area, area);\
+        float dist = dot(dir, -refractedLight);\
+        shadow = 1.0 + (sa - 1.0) / (0.05 + dist * 0.025);\
+        shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);\
+        shadow = mix(1.0, shadow, clamp(dist * 2.0, 0.0, 1.0));\
+      }\
       gl_FragColor.g = shadow;\
       \
       /* shadow for the rim of the pool */\
@@ -344,20 +347,20 @@ Renderer.prototype.renderWater = function(water, sky, causticTex) {
 };
 
 // Render sphere for a given water instance. Optionally supply a caustic texture to use.
-Renderer.prototype.renderSphere = function(water, causticTex) {
-  water.textureA.bind(0);
-  (causticTex || this.causticTex).bind(1);
-  this.sphereShader.uniforms({
-    light: this.lightDir,
-    water: 0,
-    causticTex: 1,
-    sphereCenter: this.sphereCenter,
-    sphereRadius: this.sphereRadius
-  }).uniforms({
-    poolHeight: this.poolHeight,
-    waterLevel: this.waterLevel
-  }).draw(this.sphereMesh);
-};
+// Renderer.prototype.renderSphere = function(water, causticTex) {
+//   water.textureA.bind(0);
+//   (causticTex || this.causticTex).bind(1);
+//   this.sphereShader.uniforms({
+//     light: this.lightDir,
+//     water: 0,
+//     causticTex: 1,
+//     sphereCenter: this.sphereCenter,
+//     sphereRadius: this.sphereRadius
+//   }).uniforms({
+//     poolHeight: this.poolHeight,
+//     waterLevel: this.waterLevel
+//   }).draw(this.sphereMesh);
+// };
 
 // Render cube (pool walls) for a given water instance. Optionally supply a caustic texture to use.
 Renderer.prototype.renderCube = function(water, causticTex) {

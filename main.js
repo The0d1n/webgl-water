@@ -448,9 +448,16 @@ window.onload = function() {
     }
 
     // Displace water around the sphere using the active container's water
+    // Sphere rendering/physics can be disabled by not applying its volume.
     var active = containers[activeContainerIndex];
-    active.water.moveSphere(oldCenter, center, radius);
-    oldCenter = center;
+    if (useSpherePhysics) {
+      // apply sphere volume only when sphere physics are enabled
+      active.water.moveSphere(oldCenter, center, radius);
+      oldCenter = center;
+    } else {
+      // make sure renderer is told there's no sphere so shaders ignore it
+      // (renderer.sphereRadius will be set before drawing as well)
+    }
 
     // Update the active water simulation and graphics
     active.water.stepSimulation();
@@ -485,8 +492,13 @@ window.onload = function() {
   gl.translate(0, 0.5, 0);
 
     gl.enable(gl.DEPTH_TEST);
-    renderer.sphereCenter = center;
-    renderer.sphereRadius = radius;
+    // Only expose sphere to the renderer if physics/interaction is enabled.
+    if (useSpherePhysics) {
+      renderer.sphereCenter = center;
+      renderer.sphereRadius = radius;
+    } else {
+      renderer.sphereRadius = 0; // disable sphere in shaders (no reflections/caustics/shadows)
+    }
     // Render all containers. We'll translate per container using gl.push/pop via matrix stack.
     for (var i = 0; i < containers.length; i++) {
       var c = containers[i];
@@ -501,7 +513,7 @@ window.onload = function() {
       renderer.renderCube(c.water, c.causticTex);
       renderer.renderWater(c.water, cubemap, c.causticTex);
       // only draw the sphere in the active container
-      if (i === activeContainerIndex) renderer.renderSphere(c.water, c.causticTex);
+      // if (i === activeContainerIndex) renderer.renderSphere(c.water, c.causticTex);
       // restore renderer.waterLevel
       renderer.waterLevel = prevRendererWater;
       gl.popMatrix();

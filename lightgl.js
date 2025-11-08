@@ -1534,7 +1534,11 @@ function Shader(vertexSource, fragmentSource) {
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error('compile error: ' + gl.getShaderInfoLog(shader));
+      var info = gl.getShaderInfoLog(shader);
+      try { console.error('--- Shader compile failure (' + (type == gl.VERTEX_SHADER ? 'VERTEX' : 'FRAGMENT') + ') ---'); } catch(e) {}
+      try { console.error(info); } catch(e) {}
+      try { console.error('--- Shader source start ---\n' + source + '\n--- Shader source end ---'); } catch(e) {}
+      throw new Error('compile error: ' + info);
     }
     return shader;
   }
