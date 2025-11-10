@@ -1,3 +1,3 @@
-# WebGL Water Demo
+# WebGL Water
 
-http://madebyevan.com/webgl-water/
+Just messing around learning new things.

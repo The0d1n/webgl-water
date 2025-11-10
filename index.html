@@ -15,17 +15,20 @@ Released under the MIT license
   <script src="cubemap.js"></script>
   <script src="renderer.js"></script>
   <script src="water.js"></script>
+  <script src="objloader.js"></script>
   <script src="main.js"></script>
   <style type="text/css">
-    body { font: 13px/140% Arial, sans-serif; background: black; color: white; overflow: hidden; }
+  body { font: 13px/140% Arial, sans-serif; background: black; color: white; overflow: auto; }
     a { color: inherit; cursor: pointer; }
     img { display: none; }
     ul { padding: 0 0 0 20px; }
     h1 { font: bold italic 30px/30px Georgia; text-align: center; }
     h2 { font: bold italic 17px/17px Georgia; padding-top: 10px; }
     small { display: block; font-size: 11px; line-height: 15px; }
-    canvas { position: absolute; top: 0; left: 0; }
-    #help { position: absolute; top: 0; right: 0; bottom: 0; width: 280px; padding-right: 20px; overflow: auto; }
+  /* keep canvas fixed so the GL view stays in the viewport while the page scrolls */
+  canvas { position: fixed; top: 0; left: 0; }
+  /* keep help fixed so controls remain visible */
+  #help { position: fixed; top: 0; right: 0; bottom: 0; width: 280px; padding-right: 20px; overflow: auto; }
     #loading { position: absolute; left: 0; top: 50%; right: 300px; text-align: center; margin-top: -8px; }
     @media (max-width: 600px) {
       small { font-size: 8px; line-height: 10px; }
@@ -60,7 +63,7 @@ Released under the MIT license
       <input id="waterLevelSlider" type="range" min="-1" max="0.16" step="0.01" value="-1">
       <div>Level: <span id="waterLevelValue">0.00</span></div>
       <div style="margin-top:8px;">
-        <label for="riseRate">Rise rate (units/sec): </label>
+  <label for="riseRate">Rise rate (liters/sec) — (10m x 10m pool): </label>
         <input id="riseRate" type="number" step="0.01" value="0.05" style="width:80px;">
         <button id="riseToggle">Start Rising</button>
         <button id="resetToSlider">Reset to Slider</button>

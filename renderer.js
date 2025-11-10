@@ -191,7 +191,7 @@ function Renderer() {
       }\
     ');
   }
-  this.sphereMesh = GL.Mesh.sphere({ detail: 10 });
+  this.sphereMesh = GL.Mesh.sphere({ detail: 0 });
   this.sphereShader = new GL.Shader(helperFunctions + '\
     varying vec3 position;\
     void main() {\
@@ -230,9 +230,51 @@ function Renderer() {
   ');
   this.sphereCenter = new GL.Vector();
   this.sphereRadius = 0;
+  // model (OBJ) mesh and matrix
+  this.modelMesh = null;
+  this.modelMatrix = new GL.Matrix();
+  this.modelShader = new GL.Shader(helperFunctions + '\
+    varying vec3 position;\
+    varying vec3 normal;\
+    void main() {\
+      position = gl_Vertex.xyz;\
+      normal = gl_Normal;\
+      gl_Position = gl_ModelViewProjectionMatrix * vec4(position, 1.0);\
+    }\
+  ', helperFunctions + '\
+    varying vec3 position;\
+    varying vec3 normal;\
+    uniform vec3 modelColor;\
+    void main() {\
+      vec3 col = modelColor;\
+      vec3 L = normalize(light);\
+      float d = max(0.0, dot(normal, L));\
+      gl_FragColor = vec4(col * (0.2 + 0.8 * d), 1.0);\
+    }\
+  ');
   // expose levels controllable from JS
   this.poolHeight = 1.0;
   this.waterLevel = 0.0;
+  // dynamic cubemap for reflecting dynamic objects (like the loaded model)
+  this._dynamicCubeSize = 256;
+  this._dynamicCube = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, this._dynamicCube);
+  for (var f = 0; f < 6; f++) {
+    gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, gl.RGBA, this._dynamicCubeSize, this._dynamicCubeSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  }
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+  this._dynamicCubeFBO = gl.createFramebuffer();
+  var self = this;
+  this.dynamicSky = {
+    bind: function(unit) {
+      gl.activeTexture(gl.TEXTURE0 + (unit || 0));
+      gl.bindTexture(gl.TEXTURE_CUBE_MAP, self._dynamicCube);
+    }
+  };
   var hasDerivatives = !!gl.getExtension('OES_standard_derivatives');
   this.causticsShader = new GL.Shader(helperFunctions + '\
     varying vec3 oldPos;\
@@ -279,13 +321,16 @@ function Renderer() {
       vec3 refractedLight = refract(-light, vec3(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);\
       \
       /* compute a blob shadow and make sure we only draw a shadow if the player is blocking the light */\
-      vec3 dir = (sphereCenter - newPos) / sphereRadius;\
-      vec3 area = cross(dir, refractedLight);\
-      float shadow = dot(area, area);\
-      float dist = dot(dir, -refractedLight);\
-      shadow = 1.0 + (shadow - 1.0) / (0.05 + dist * 0.025);\
-      shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);\
-      shadow = mix(1.0, shadow, clamp(dist * 2.0, 0.0, 1.0));\
+      float shadow = 1.0;\
+      if (sphereRadius > 0.0) {\
+        vec3 dir = (sphereCenter - newPos) / sphereRadius;\
+        vec3 area = cross(dir, refractedLight);\
+        float sa = dot(area, area);\
+        float dist = dot(dir, -refractedLight);\
+        shadow = 1.0 + (sa - 1.0) / (0.05 + dist * 0.025);\
+        shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);\
+        shadow = mix(1.0, shadow, clamp(dist * 2.0, 0.0, 1.0));\
+      }\
       gl_FragColor.g = shadow;\
       \
       /* shadow for the rim of the pool */\
@@ -295,10 +340,13 @@ function Renderer() {
   ');
 }
 
-Renderer.prototype.updateCaustics = function(water) {
+// Update caustics for a given water instance and optionally output to a provided texture.
+// If no destCausticTex is provided, fall back to the renderer's default caustic texture.
+Renderer.prototype.updateCaustics = function(water, destCausticTex) {
   if (!this.causticsShader) return;
   var this_ = this;
-  this.causticTex.drawTo(function() {
+  var target = destCausticTex || this.causticTex;
+  target.drawTo(function() {
     gl.clear(gl.COLOR_BUFFER_BIT);
     water.textureA.bind(0);
     this_.causticsShader.uniforms({
@@ -312,12 +360,85 @@ Renderer.prototype.updateCaustics = function(water) {
   });
 };
 
-Renderer.prototype.renderWater = function(water, sky) {
+// Render dynamic cubemap by calling a scene draw callback for each face.
+Renderer.prototype.updateDynamicCubemap = function(sceneDrawCallback) {
+  var size = this._dynamicCubeSize;
+  var fbo = this._dynamicCubeFBO;
+  var tex = this._dynamicCube;
+  var oldViewport = [gl.getParameter(gl.VIEWPORT)[0], gl.getParameter(gl.VIEWPORT)[1], gl.getParameter(gl.VIEWPORT)[2], gl.getParameter(gl.VIEWPORT)[3]];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, size, size);
+  var captures = [
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_X, eye: [1,0,0], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_X, eye: [-1,0,0], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Y, eye: [0,1,0], up: [0,0,1], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y, eye: [0,-1,0], up: [0,0,-1], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Z, eye: [0,0,1], up: [0,-1,0], center: [0,0,0] },
+    { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, eye: [0,0,-1], up: [0,-1,0], center: [0,0,0] }
+  ];
+  for (var i = 0; i < captures.length; i++) {
+    var c = captures[i];
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, c.target, tex, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // set up a temporary projection and view for this face
+    gl.matrixMode(gl.PROJECTION);
+    gl.pushMatrix();
+    gl.loadIdentity();
+    gl.perspective(90, 1, 0.01, 100);
+    gl.matrixMode(gl.MODELVIEW);
+    gl.pushMatrix();
+    gl.loadIdentity();
+    // lookAt(eye, center, up)
+    gl.lookAt(c.eye[0], c.eye[1], c.eye[2], c.center[0], c.center[1], c.center[2], c.up[0], c.up[1], c.up[2]);
+    try {
+      sceneDrawCallback();
+    } catch (e) {
+      // ignore
+    }
+    gl.popMatrix();
+    gl.matrixMode(gl.PROJECTION);
+    gl.popMatrix();
+    gl.matrixMode(gl.MODELVIEW);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(oldViewport[0], oldViewport[1], oldViewport[2], oldViewport[3]);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
+  gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+};
+
+// Simple model rendering: draws `this.modelMesh` with `this.modelShader` if set.
+Renderer.prototype.renderModel = function() {
+  if (!this.modelMesh) return;
+  // model transform: translate to modelPosition and apply uniform scale
+  var pos = this.modelPosition || new GL.Vector(0, 0, 0);
+  var scale = this.modelScale || 1.0;
+  // if mesh has boundingSphere, transform it by scale and position for caustics approximations
+  // We intentionally do NOT set sphereCenter/sphereRadius from the model bounding sphere
+  // to avoid approximate blob shadows/caustics caused by the bounding-sphere hack.
+  // Keep sphereRadius == 0 so shader paths that render analytic sphere are disabled.
+  this.sphereRadius = 0;
+  // set model color default and draw
+  var defaultColor = this.modelColor || [0.6, 0.6, 0.7];
+  try {
+    gl.pushMatrix();
+    gl.translate(pos.x || 0, pos.y || 0, pos.z || 0);
+    gl.scale(scale, scale, scale);
+    this.modelShader.uniforms({ light: this.lightDir, modelColor: defaultColor }).draw(this.modelMesh);
+    gl.popMatrix();
+  } catch (e) {
+    // ignore draw errors (mesh compilation etc.)
+  }
+};
+
+// Render water for a given water instance. Optionally provide a caustic texture to use
+// (so multiple pools can have their own caustics).
+Renderer.prototype.renderWater = function(water, sky, causticTex) {
   var tracer = new GL.Raytracer();
   water.textureA.bind(0);
   this.tileTexture.bind(1);
   sky.bind(2);
-  this.causticTex.bind(3);
+  (causticTex || this.causticTex).bind(3);
   gl.enable(gl.CULL_FACE);
   for (var i = 0; i < 2; i++) {
     gl.cullFace(i ? gl.BACK : gl.FRONT);
@@ -338,26 +459,28 @@ Renderer.prototype.renderWater = function(water, sky) {
   gl.disable(gl.CULL_FACE);
 };
 
-Renderer.prototype.renderSphere = function() {
-  water.textureA.bind(0);
-  this.causticTex.bind(1);
-  this.sphereShader.uniforms({
-    light: this.lightDir,
-    water: 0,
-    causticTex: 1,
-    sphereCenter: this.sphereCenter,
-    sphereRadius: this.sphereRadius
-  }).uniforms({
-    poolHeight: this.poolHeight,
-    waterLevel: this.waterLevel
-  }).draw(this.sphereMesh);
-};
+// Render sphere for a given water instance. Optionally supply a caustic texture to use.
+// Renderer.prototype.renderSphere = function(water, causticTex) {
+//   water.textureA.bind(0);
+//   (causticTex || this.causticTex).bind(1);
+//   this.sphereShader.uniforms({
+//     light: this.lightDir,
+//     water: 0,
+//     causticTex: 1,
+//     sphereCenter: this.sphereCenter,
+//     sphereRadius: this.sphereRadius
+//   }).uniforms({
+//     poolHeight: this.poolHeight,
+//     waterLevel: this.waterLevel
+//   }).draw(this.sphereMesh);
+// };
 
-Renderer.prototype.renderCube = function() {
+// Render cube (pool walls) for a given water instance. Optionally supply a caustic texture to use.
+Renderer.prototype.renderCube = function(water, causticTex) {
   gl.enable(gl.CULL_FACE);
   water.textureA.bind(0);
   this.tileTexture.bind(1);
-  this.causticTex.bind(2);
+  (causticTex || this.causticTex).bind(2);
   this.cubeShader.uniforms({
     light: this.lightDir,
     water: 0,
@@ -371,6 +494,3 @@ Renderer.prototype.renderCube = function() {
   }).draw(this.cubeMesh);
   gl.disable(gl.CULL_FACE);
 };
-
-
-// End of File
