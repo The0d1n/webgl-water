@@ -253,7 +253,7 @@ function Renderer() {
     }\
   ');
   // expose levels controllable from JS
-  this.poolHeight = 1.0;
+  this.poolHeight = 1.2;
   this.waterLevel = 0.0;
   // dynamic cubemap for reflecting dynamic objects (like the loaded model)
   this._dynamicCubeSize = 256;

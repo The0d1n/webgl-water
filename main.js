@@ -42,7 +42,7 @@ var verticalSpacing = 3.0; // world units between stacked containers
 // physical pool dimensions (meters). For a 10x10x10 m cube set these to 10.
 var poolWidth = 10.0;
 var poolDepth = 10.0;
-var poolHeightMeters = 10.0;
+var poolHeightMeters = 1.2;
 
 // Sphere physics info
 var useSpherePhysics = false;
@@ -76,6 +76,8 @@ window.onload = function() {
   gl.clearColor(0, 0, 0, 1);
 
   renderer = new Renderer();
+  // ensure renderer uses the configured real-world pool height (meters)
+  renderer.poolHeight = poolHeightMeters;
   // attempt to load a replacement model (OBJ) and assign it to renderer.modelMesh
   (function loadModel() {
     var xhr = new XMLHttpRequest();
@@ -193,7 +195,7 @@ window.onload = function() {
   function applyWaterLevel(v) {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
-    renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
+  renderer.poolHeight = poolHeightMeters; // use configured pool height in meters
     // apply to active container
     var container = containers[activeContainerIndex];
     if (container) {
@@ -574,7 +576,7 @@ window.onload = function() {
       // Save and restore renderer.waterLevel to avoid corrupting simulation state
       var prevRendererWater = renderer.waterLevel;
       renderer.waterLevel = c.water.waterLevel;
-      renderer.poolHeight = 1.0;
+  renderer.poolHeight = poolHeightMeters;
       // render scene using the static cubemap only (disable dynamic reflections)
       renderer.renderCube(c.water, c.causticTex);
       renderer.renderWater(c.water, cubemap, c.causticTex);
