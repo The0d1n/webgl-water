@@ -247,12 +247,17 @@ window.onload = function() {
 
     // Handle rising water when enabled (runs even if paused is false above). We update renderer and slider.
     if (isRising && renderer) {
-  // parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
-  // 1 liter = 0.001 m^3. Height change (m) = liters * 0.001 / area.
-  var rateLiters = parseFloat(riseRateInput.value) || 0;
-  var area = poolWidth * poolDepth; // m^2
-  var rate = rateLiters * 0.001 / area; // meters (world units) per second
-      // increment water level based on delta time
+// parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
+// 1 liter = 0.001 m^3. Height change (m) = liters * 0.001 / area.
+// We apply a calibration factor so that the visual timing matches a desired mapping.
+var rateLiters = parseFloat(riseRateInput.value) || 0;
+var area = poolWidth * poolDepth; // m^2
+var rawRate = rateLiters * 0.001 / area; // m/s before calibration
+
+// Calibration factor (empirically computed for your target)
+// For R_L=167500 L/s, ΔH=1.39 m, t_target=5.97 s -> C ≈ 7.195
+var calibration = 7.195; // tweak if you want faster/slower visuals
+var rate = rawRate / calibration; // meters per second after calibration
       var newLevel = renderer.waterLevel + rate * delta;
       // clamp to slider bounds
       var min = parseFloat(slider.getAttribute('min'));
