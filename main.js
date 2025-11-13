@@ -42,7 +42,7 @@ var verticalSpacing = 3.0; // world units between stacked containers
 // physical pool dimensions (meters). For a 10x10x10 m cube set these to 10.
 var poolWidth = 10.0;
 var poolDepth = 10.0;
-var poolHeightMeters = 10.0;
+var poolHeightMeters = 1.2;
 
 // Sphere physics info
 var useSpherePhysics = false;
@@ -76,6 +76,8 @@ window.onload = function() {
   gl.clearColor(0, 0, 0, 1);
 
   renderer = new Renderer();
+  // ensure renderer uses the configured real-world pool height (meters)
+  renderer.poolHeight = poolHeightMeters;
   // attempt to load a replacement model (OBJ) and assign it to renderer.modelMesh
   (function loadModel() {
     var xhr = new XMLHttpRequest();
@@ -92,7 +94,8 @@ window.onload = function() {
                 renderer.modelMesh = mesh;
                 // set default placement to the previous sphere center/scale
                 renderer.modelPosition = center || new GL.Vector(0, -0.75, 0.2);
-                renderer.modelScale = radius || 0.25;
+                renderer.modelScale = radius || 0.1552303307647887;
+                // console.log('modelScale (initial):', renderer.modelScale);
                 // attempt to load .mtl for color
                 var mtlXHR = new XMLHttpRequest();
                 mtlXHR.open('GET', 'free_low_poly_male_base_mesh.mtl', true);
@@ -161,7 +164,7 @@ window.onload = function() {
   center = oldCenter = new GL.Vector(-0.4, -0.75, 0.2);
   velocity = new GL.Vector();
   gravity = new GL.Vector(0, -4, 0);
-  radius = 0.25;
+  radius = 0.1552303307647887;
 
   for (var i = 0; i < 20; i++) {
     containers[activeContainerIndex].water.addDrop(Math.random() * 2 - 1, Math.random() * 2 - 1, 0.03, (i & 1) ? 0.01 : -0.01);
@@ -192,7 +195,7 @@ window.onload = function() {
   function applyWaterLevel(v) {
     if (!renderer) return;
     renderer.waterLevel = parseFloat(v);
-    renderer.poolHeight = 1.0; // keep pool height default; could be exposed if needed
+  renderer.poolHeight = poolHeightMeters; // use configured pool height in meters
     // apply to active container
     var container = containers[activeContainerIndex];
     if (container) {
@@ -244,12 +247,17 @@ window.onload = function() {
 
     // Handle rising water when enabled (runs even if paused is false above). We update renderer and slider.
     if (isRising && renderer) {
-  // parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
-  // 1 liter = 0.001 m^3. Height change (m) = liters * 0.001 / area.
-  var rateLiters = parseFloat(riseRateInput.value) || 0;
-  var area = poolWidth * poolDepth; // m^2
-  var rate = rateLiters * 0.001 / area; // meters (world units) per second
-      // increment water level based on delta time
+// parse rise rate from input (liters/sec). Convert liters/sec -> world units/sec (meters/sec)
+// 1 liter = 0.001 m^3. Height change (m) = liters * 0.001 / area.
+// We apply a calibration factor so that the visual timing matches a desired mapping.
+var rateLiters = parseFloat(riseRateInput.value) || 0;
+var area = poolWidth * poolDepth; // m^2
+var rawRate = rateLiters * 0.001 / area; // m/s before calibration
+
+// Calibration factor (empirically computed for your target)
+// For R_L=167500 L/s, ΔH=1.39 m, t_target=5.97 s -> C ≈ 7.195
+var calibration = 7.195; // tweak if you want faster/slower visuals
+var rate = rawRate / calibration; // meters per second after calibration
       var newLevel = renderer.waterLevel + rate * delta;
       // clamp to slider bounds
       var min = parseFloat(slider.getAttribute('min'));
@@ -573,7 +581,7 @@ window.onload = function() {
       // Save and restore renderer.waterLevel to avoid corrupting simulation state
       var prevRendererWater = renderer.waterLevel;
       renderer.waterLevel = c.water.waterLevel;
-      renderer.poolHeight = 1.0;
+  renderer.poolHeight = poolHeightMeters;
       // render scene using the static cubemap only (disable dynamic reflections)
       renderer.renderCube(c.water, c.causticTex);
       renderer.renderWater(c.water, cubemap, c.causticTex);
@@ -607,7 +615,10 @@ var cameraTransition = {
       renderer.modelScale = (renderer.modelScale || 1) / 1.1;
     } else if (e.key === 'r' || e.key === 'R') {
       renderer.modelPosition = new GL.Vector(0, -0.75, 0.2);
-      renderer.modelScale = 0.25;
+      renderer.modelScale = 0.1552303307647887;
+    // Print current model scale so it's easy to read and hardcode later
+    // try { console.log('modelScale (current):', renderer.modelScale); } catch (e) {}
+
     }
   });
 
