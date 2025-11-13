@@ -92,7 +92,8 @@ window.onload = function() {
                 renderer.modelMesh = mesh;
                 // set default placement to the previous sphere center/scale
                 renderer.modelPosition = center || new GL.Vector(0, -0.75, 0.2);
-                renderer.modelScale = radius || 0.25;
+                renderer.modelScale = radius || 0.1552303307647887;
+                // console.log('modelScale (initial):', renderer.modelScale);
                 // attempt to load .mtl for color
                 var mtlXHR = new XMLHttpRequest();
                 mtlXHR.open('GET', 'free_low_poly_male_base_mesh.mtl', true);
@@ -161,7 +162,7 @@ window.onload = function() {
   center = oldCenter = new GL.Vector(-0.4, -0.75, 0.2);
   velocity = new GL.Vector();
   gravity = new GL.Vector(0, -4, 0);
-  radius = 0.25;
+  radius = 0.1552303307647887;
 
   for (var i = 0; i < 20; i++) {
     containers[activeContainerIndex].water.addDrop(Math.random() * 2 - 1, Math.random() * 2 - 1, 0.03, (i & 1) ? 0.01 : -0.01);
@@ -607,7 +608,10 @@ var cameraTransition = {
       renderer.modelScale = (renderer.modelScale || 1) / 1.1;
     } else if (e.key === 'r' || e.key === 'R') {
       renderer.modelPosition = new GL.Vector(0, -0.75, 0.2);
-      renderer.modelScale = 0.25;
+      renderer.modelScale = 0.1552303307647887;
+    // Print current model scale so it's easy to read and hardcode later
+    // try { console.log('modelScale (current):', renderer.modelScale); } catch (e) {}
+
     }
   });
 
